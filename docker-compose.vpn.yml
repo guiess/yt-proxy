@@ -58,6 +58,7 @@ services:
         hmac_key: ${HMAC_KEY}
         invidious_companion:
           - private_url: http://gluetun:8282
+            public_url: https://${DOMAIN}
         default_user_preferences:
           local: true
           quality: dash

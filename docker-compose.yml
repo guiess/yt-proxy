@@ -41,6 +41,7 @@ services:
         hmac_key: ${HMAC_KEY}
         invidious_companion:
           - private_url: http://companion:8282
+            public_url: https://${DOMAIN}
         default_user_preferences:
           local: true
           quality: dash
@@ -65,6 +66,7 @@ services:
       - COMPANION_PORT=8282
       - COMPANION_HOST=0.0.0.0
       - COMPANION_INNER_TUBE_FORCE_LOCATION=US
+      - SERVER_SECRET_KEY=${COMPANION_KEY}
     healthcheck:
       test: wget -nv --tries=1 --spider http://127.0.0.1:8282 || exit 1
       interval: 30s
