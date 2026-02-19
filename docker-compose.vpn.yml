@@ -26,7 +26,7 @@ services:
     volumes:
       - gluetun_data:/gluetun
     healthcheck:
-      test: wget -q -O /dev/null http://ipinfo.io || exit 1
+      test: wget -q -O /dev/null http://127.0.0.1:9999 || exit 1
       interval: 30s
       timeout: 10s
       retries: 5
