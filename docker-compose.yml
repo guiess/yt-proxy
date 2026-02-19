@@ -1,0 +1,94 @@
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN=${DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+    depends_on:
+      - invidious
+      - companion
+
+  invidious:
+    image: quay.io/invidious/invidious:latest
+    restart: unless-stopped
+    environment:
+      INVIDIOUS_CONFIG: |
+        db:
+          dbname: invidious
+          user: kemal
+          password: ${POSTGRES_PASSWORD}
+          host: postgres
+          port: 5432
+        check_tables: true
+        host_binding: 0.0.0.0
+        port: 3000
+        external_port: 443
+        https_only: true
+        domain: ${DOMAIN}
+        registration_enabled: true
+        login_enabled: true
+        captcha_enabled: false
+        admins: []
+        hmac_key: ${HMAC_KEY}
+        invidious_companion:
+          - private_url: http://companion:8282
+        default_user_preferences:
+          local: true
+          quality: dash
+          quality_dash: auto
+          region: US
+          dark_mode: dark
+          player_style: invidious
+          save_player_pos: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: wget -nv --tries=1 --spider http://127.0.0.1:3000/api/v1/trending || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 2
+
+  companion:
+    image: quay.io/invidious/invidious-companion:latest
+    restart: unless-stopped
+    environment:
+      - COMPANION_PORT=8282
+      - COMPANION_HOST=0.0.0.0
+      - COMPANION_INNER_TUBE_FORCE_LOCATION=US
+    healthcheck:
+      test: wget -nv --tries=1 --spider http://127.0.0.1:8282 || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 2
+
+  postgres:
+    image: postgres:14
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/sql:/config/sql:ro
+      - ./docker/init-invidious-db.sh:/docker-entrypoint-initdb.d/init-invidious-db.sh:ro
+    environment:
+      POSTGRES_DB: invidious
+      POSTGRES_USER: kemal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kemal -d invidious"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:

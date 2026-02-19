@@ -1,0 +1,78 @@
+# VPN overlay — use if YouTube blocks the Azure datacenter IP.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d
+#
+# Requires VPN_PROVIDER, VPN_TYPE, and provider-specific env vars in .env.
+# See https://github.com/qdm12/gluetun-wiki for provider settings.
+
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=${VPN_PROVIDER:-mullvad}
+      - VPN_TYPE=${VPN_TYPE:-wireguard}
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
+      - SERVER_COUNTRIES=${VPN_COUNTRY:-}
+    volumes:
+      - gluetun_data:/gluetun
+    healthcheck:
+      test: wget -nv --tries=1 --spider http://ipinfo.io || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Route Companion traffic through the VPN
+  companion:
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+
+  # Invidious needs to reach Companion via Gluetun's network
+  invidious:
+    environment:
+      INVIDIOUS_CONFIG: |
+        db:
+          dbname: invidious
+          user: kemal
+          password: ${POSTGRES_PASSWORD}
+          host: postgres
+          port: 5432
+        check_tables: true
+        host_binding: 0.0.0.0
+        port: 3000
+        external_port: 443
+        https_only: true
+        domain: ${DOMAIN}
+        registration_enabled: true
+        login_enabled: true
+        captcha_enabled: false
+        admins: []
+        hmac_key: ${HMAC_KEY}
+        invidious_companion:
+          - private_url: http://gluetun:8282
+        default_user_preferences:
+          local: true
+          quality: dash
+          quality_dash: auto
+          region: US
+          dark_mode: dark
+          player_style: invidious
+          save_player_pos: true
+
+  # Caddy needs to reach Companion via Gluetun's network
+  caddy:
+    environment:
+      - DOMAIN=${DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+      - COMPANION_HOST=gluetun
+
+volumes:
+  gluetun_data:

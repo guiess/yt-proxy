@@ -1,0 +1,13 @@
+{$DOMAIN} {
+	tls {$ACME_EMAIL}
+
+	# Companion endpoints (video stream proxying)
+	handle /companion/* {
+		reverse_proxy {$COMPANION_HOST:companion}:8282
+	}
+
+	# Everything else goes to Invidious
+	handle {
+		reverse_proxy invidious:3000
+	}
+}

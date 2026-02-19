@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:azure.microsoft.com)",
+      "WebFetch(domain:instances.vantage.sh)",
+      "WebFetch(domain:costcalc.cloudoptimo.com)",
+      "WebFetch(domain:cloudprice.net)",
+      "WebFetch(domain:turbo360.com)",
+      "WebFetch(domain:www.pump.co)",
+      "WebFetch(domain:moebuta.org)",
+      "WebFetch(domain:www.economize.cloud)",
+      "Bash(dir:*)",
+      "WebFetch(domain:docs.invidious.io)",
+      "WebFetch(domain:blog.faucher.net)",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
