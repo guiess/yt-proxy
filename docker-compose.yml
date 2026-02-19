@@ -44,6 +44,7 @@ services:
             public_url: https://${DOMAIN}/companion
         invidious_companion_key: ${COMPANION_KEY}
         default_user_preferences:
+          local: true
           quality: dash
           quality_dash: auto
           region: US

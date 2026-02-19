@@ -39,8 +39,14 @@ services:
       gluetun:
         condition: service_healthy
 
-  # Invidious needs to reach Companion via Gluetun's network
+  # Route Invidious traffic through the VPN too (for /videoplayback proxy)
   invidious:
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       INVIDIOUS_CONFIG: |
         db:
@@ -61,10 +67,11 @@ services:
         admins: []
         hmac_key: ${HMAC_KEY}
         invidious_companion:
-          - private_url: http://gluetun:8282/companion
+          - private_url: http://localhost:8282/companion
             public_url: https://${DOMAIN}/companion
         invidious_companion_key: ${COMPANION_KEY}
         default_user_preferences:
+          local: true
           quality: dash
           quality_dash: auto
           region: US
@@ -72,12 +79,13 @@ services:
           player_style: invidious
           save_player_pos: true
 
-  # Caddy needs to reach Companion via Gluetun's network
+  # Caddy reaches both Invidious and Companion via Gluetun
   caddy:
     environment:
       - DOMAIN=${DOMAIN}
       - ACME_EMAIL=${ACME_EMAIL}
       - COMPANION_HOST=gluetun
+      - INVIDIOUS_HOST=gluetun
 
 volumes:
   gluetun_data:
