@@ -68,11 +68,9 @@ services:
       - COMPANION_HOST=0.0.0.0
       - COMPANION_INNER_TUBE_FORCE_LOCATION=US
       - SERVER_SECRET_KEY=${COMPANION_KEY}
+    # Companion image is distroless (no shell/wget), so disable healthcheck
     healthcheck:
-      test: wget -nv --tries=1 --spider http://127.0.0.1:8282 || exit 1
-      interval: 30s
-      timeout: 5s
-      retries: 2
+      disable: true
 
   postgres:
     image: postgres:14

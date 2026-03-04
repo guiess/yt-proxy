@@ -1,5 +1,20 @@
+{
+	# Disable HTTP/3 (QUIC) — commonly blocked by Russian ISPs,
+	# causing video playback to hang while the browser waits for
+	# QUIC before falling back to HTTP/2.
+	servers {
+		protocols h1 h2
+	}
+}
+
 {$DOMAIN} {
 	tls {$ACME_EMAIL}
+
+	log {
+		output stdout
+		format console
+		level INFO
+	}
 
 	# Companion endpoints (video stream proxying)
 	handle /companion/* {
