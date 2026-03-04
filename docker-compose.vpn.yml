@@ -23,6 +23,7 @@ services:
       - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:-}
       - FREE_ONLY=${FREE_ONLY:-}
       - SERVER_COUNTRIES=${VPN_COUNTRY:-}
+      - OPENVPN_FLAGS=--reneg-sec 0
     volumes:
       - gluetun_data:/gluetun
     healthcheck:
