@@ -13,9 +13,31 @@ services:
     environment:
       - DOMAIN=${DOMAIN}
       - ACME_EMAIL=${ACME_EMAIL}
+      - RAMMERHEAD_DOMAIN=${RAMMERHEAD_DOMAIN}
+      - RAMMERHEAD_USER=${RAMMERHEAD_USER}
+      - RAMMERHEAD_PASS_HASH=${RAMMERHEAD_PASS_HASH}
+      - RAMMERHEAD_SHARE_KEY=${RAMMERHEAD_SHARE_KEY}
     depends_on:
       - invidious
       - companion
+      - rammerhead
+
+  rammerhead:
+    build:
+      context: ./docker/rammerhead
+    restart: unless-stopped
+    expose:
+      - "8080"
+      - "8081"
+    environment:
+      - RH_PUBLIC_HOST=${RAMMERHEAD_DOMAIN}
+      - NODE_ENV=production
+    healthcheck:
+      test: wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 
   invidious:
     image: quay.io/invidious/invidious:latest
@@ -46,7 +68,7 @@ services:
         default_user_preferences:
           local: true
           quality: dash
-          quality_dash: auto
+          quality_dash: 360
           region: US
           dark_mode: dark
           player_style: invidious

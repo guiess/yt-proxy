@@ -74,7 +74,7 @@ services:
         default_user_preferences:
           local: true
           quality: dash
-          quality_dash: auto
+          quality_dash: 360
           region: US
           dark_mode: dark
           player_style: invidious
@@ -87,6 +87,10 @@ services:
       - ACME_EMAIL=${ACME_EMAIL}
       - COMPANION_HOST=gluetun
       - INVIDIOUS_HOST=gluetun
+      - RAMMERHEAD_DOMAIN=${RAMMERHEAD_DOMAIN}
+      - RAMMERHEAD_USER=${RAMMERHEAD_USER}
+      - RAMMERHEAD_PASS_HASH=${RAMMERHEAD_PASS_HASH}
+      - RAMMERHEAD_SHARE_KEY=${RAMMERHEAD_SHARE_KEY}
 
 volumes:
   gluetun_data:

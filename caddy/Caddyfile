@@ -26,3 +26,58 @@
 		reverse_proxy {$INVIDIOUS_HOST:invidious}:3000
 	}
 }
+
+# Rammerhead web proxy on sslip.io (resolves to this VM's public IP).
+# Gated by a cookie-based token so it isn't an open proxy for the internet.
+# Visit once with ?key=<RAMMERHEAD_SHARE_KEY> to set a 10-year cookie.
+{$RAMMERHEAD_DOMAIN} {
+	tls {$ACME_EMAIL}
+
+	log {
+		output stdout
+		format console
+		level INFO
+	}
+
+	@hasKeyParam query key={$RAMMERHEAD_SHARE_KEY}
+	handle @hasKeyParam {
+		header Set-Cookie "rh_auth={$RAMMERHEAD_SHARE_KEY}; Path=/; Max-Age=315360000; Secure; HttpOnly; SameSite=Lax"
+		redir https://{host}/open?url={query.url} 302
+	}
+
+	@hasAuthCookie header_regexp Cookie "(?:^|;\s*)rh_auth={$RAMMERHEAD_SHARE_KEY}(?:;|$)"
+	handle @hasAuthCookie {
+		# Tiny helper: /open?url=https://example.com creates a session and jumps to it.
+		handle /open {
+			header Content-Type "text/html; charset=utf-8"
+			respond <<HTML
+<!doctype html><meta charset=utf-8><title>Opening…</title>
+<body style="font-family:system-ui;padding:2em">Opening <span id=u></span>…
+<pre id=e style=color:red></pre>
+<script>
+const target = new URLSearchParams(location.search).get('url');
+document.getElementById('u').textContent = target || '(no ?url= given)';
+if (!target) throw 0;
+(async () => {
+  try {
+    const sid = await fetch('/newsession').then(r => r.text());
+    await fetch('/editsession', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: 'id=' + sid + '&httpProxy=&enableShuffling=0'});
+    location.replace('/' + sid + '/' + target);
+  } catch (err) {
+    document.getElementById('e').textContent = err;
+  }
+})();
+</script>
+HTML 200
+		}
+
+		reverse_proxy rammerhead:8080 {
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	handle {
+		respond "Forbidden" 403
+	}
+}
