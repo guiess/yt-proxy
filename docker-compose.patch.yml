@@ -1,0 +1,28 @@
+# Hotfix overlay — replaces the upstream Invidious image with a locally-built one
+# whose hard-coded WEB InnerTube client version is bumped to a value YouTube still
+# accepts. Fixes "Youtube API returned status code 400" on search/browse/video.
+#
+# See TROUBLESHOOTING.md → "Search & video return HTTP 400".
+#
+# Usage (no VPN):
+#   WEB_CLIENT_VERSION=2.20260721.01.00 \
+#     docker compose -f docker-compose.yml -f docker-compose.patch.yml up -d --build invidious
+#
+# Usage (with the VPN overlay — this patch overlay must be listed LAST):
+#   WEB_CLIENT_VERSION=2.20260721.01.00 \
+#     docker compose -f docker-compose.yml -f docker-compose.vpn.yml -f docker-compose.patch.yml up -d --build invidious
+#
+# Capture a current WEB version from a browser: F12 → Network → any youtubei/v1
+# request → request header `X-Youtube-Client-Version` (format 2.YYYYMMDD.rr.rr).
+#
+# To revert once upstream ships a fix, just drop this overlay and `pull` invidious.
+
+services:
+  invidious:
+    image: yt-proxy/invidious-patched:latest
+    build:
+      context: ./docker/invidious
+      args:
+        INVIDIOUS_IMAGE: quay.io/invidious/invidious:latest
+        OLD_WEB_CLIENT_VERSION: "2.20250222.10.00"
+        WEB_CLIENT_VERSION: ${WEB_CLIENT_VERSION:-2.20260722.01.00}
