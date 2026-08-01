@@ -126,6 +126,7 @@ az vm show -g RG-YT-PROXY -n vm-yt-proxy --show-details -o json
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | Search/video return HTTP 400 | YouTube blacklisted the hard-coded WEB client version | See "Search & video return HTTP 400" section below |
+| Every page fails with `Socket::Addrinfo::Error` ("Try again") | gluetun VPN tunnel wedged → killswitch blocks DNS | See "VPN tunnel wedged → DNS lookups fail" section below |
 | Video hangs, then plays after delay | QUIC blocked by ISP | Already fixed: QUIC disabled in Caddyfile |
 | VPN connection drops hourly | OpenVPN key renegotiation | Already fixed: `--reneg-sec 0` in gluetun config |
 | Signed URL IP mismatch | Companion/Invidious use different IPs | Already fixed: both share gluetun network namespace |
@@ -216,3 +217,97 @@ cd /opt/yt-proxy
 docker compose -f docker-compose.yml pull invidious            # add -f docker-compose.vpn.yml if using VPN
 docker compose -f docker-compose.yml up -d invidious           # add -f docker-compose.vpn.yml if using VPN
 ```
+
+---
+
+# VPN tunnel wedged → DNS lookups fail ("Socket::Addrinfo::Error")
+
+## Symptoms
+
+- Search, trending, channels — **every** page — fail immediately
+- Invidious shows / logs:
+  `Hostname lookup for www.youtube.com failed: Try again (Socket::Addrinfo::Error)`
+  with a backtrace through `socket/addrinfo.cr` → `http/client.cr`
+- `docker ps` shows `yt-proxy-gluetun-1` **and** `yt-proxy-invidious-1` as `(unhealthy)`
+- Appeared on its own with **no config change** — slow degradation, not a deploy
+
+## Root cause
+
+This deployment routes Invidious and Companion through the VPN by having them share
+gluetun's network namespace (`network_mode: "service:gluetun"` in
+[`docker-compose.vpn.yml`](docker-compose.vpn.yml)). All of their DNS therefore goes
+through gluetun, and gluetun's killswitch blocks **all** traffic — including DNS —
+whenever the tunnel is down.
+
+Over time gluetun's OpenVPN tunnel can get stuck in a restart loop. OpenVPN connects to
+the ProtonVPN node fine ("Initialization Sequence Completed") but fails to install its
+route, because stale routes have piled up in the container's network namespace:
+
+```
+ERROR [openvpn] OpenVPN tried to add an IP route which already exists (RTNETLINK answers: File exists)
+ERROR [MTU discovery] ... getting VPN route: VPN route not found: for interface tun0 in 23 routes
+WARN  [vpn] restarting VPN because it failed to pass the healthcheck: ... lookup github.com: i/o timeout
+```
+
+The healthcheck then fails, gluetun restarts the VPN **inside the same namespace**, the
+route is still there ("File exists"), and it loops forever (`FailingStreak` climbs into
+the hundreds). The tunnel never comes up, so DNS stays dead → `Try again` / `EAI_AGAIN`.
+
+This is **not** the same as the two issues above: nothing reaches YouTube at all, so it is
+neither the WEB-client HTTP 400 nor the player-deciphering break.
+
+## Diagnosis
+
+```bash
+ssh azureuser@<VM_IP>
+
+# Are gluetun + invidious unhealthy?
+docker ps --format 'table {{.Names}}\t{{.Status}}'
+
+# Why is gluetun unhealthy? Look for the route-add loop.
+docker logs --tail 80 yt-proxy-gluetun-1
+docker inspect --format '{{.State.Health.FailingStreak}}' yt-proxy-gluetun-1
+```
+
+## Fix: recreate gluetun (fresh netns), not restart
+
+A plain `docker compose restart gluetun` **does not work** — restart reuses the same
+network namespace, so the polluted routing table (and the loop) survive. gluetun must be
+**recreated** to get a clean namespace, and because Invidious and Companion share that
+namespace they must be recreated together, in the same command:
+
+```bash
+cd /opt/yt-proxy
+# Use the SAME overlays the stack was deployed with (base + vpn [+ patch]):
+docker compose -f docker-compose.yml -f docker-compose.vpn.yml -f docker-compose.patch.yml \
+  up -d --force-recreate gluetun invidious companion
+```
+
+(Drop `-f docker-compose.patch.yml` if the WEB-client patch isn't in use.)
+
+### Verify
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Status}}'                 # all three healthy/up
+docker exec yt-proxy-gluetun-1 wget -qO- https://api.ipify.org     # VPN egress IP prints
+docker exec yt-proxy-invidious-1 wget -qO- http://127.0.0.1:3000/api/v1/trending | head -c 100
+```
+
+The trending call should return JSON (starts with `[{"type":"video"...`).
+
+## Prevention: the gluetun watchdog
+
+Because gluetun never *exits* when it wedges (it loops internally), Docker's
+`restart: unless-stopped` policy never triggers, and the outage persists until someone
+notices. [`scripts/gluetun-watchdog.sh`](scripts/gluetun-watchdog.sh) closes that gap: it
+checks gluetun's health and, once it has been failing for a sustained period, runs the
+force-recreate above automatically. Install it in cron (every 5 min):
+
+```bash
+( crontab -l 2>/dev/null; \
+  echo '*/5 * * * * /opt/yt-proxy/scripts/gluetun-watchdog.sh >> /home/azureuser/gluetun-watchdog.log 2>&1' \
+) | crontab -
+```
+
+The script recreates with whatever overlays the running stack was created with (read from
+the compose labels), so it works with or without the VPN/patch overlays.
