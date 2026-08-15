@@ -99,6 +99,23 @@ services:
     # https://quay.io/repository/invidious/invidious-companion?tab=tags
     image: quay.io/invidious/invidious-companion:2026.08.10-16cf10e
     restart: unless-stopped
+    # Docker's default soft nofile limit is 1024. Companion leaks eventpoll/
+    # eventfd pairs at ~53.5 FDs per 1,000 videoplayback requests, so it hit
+    # EMFILE ("Too many open files" -> unrecoverable Rust panic) roughly every
+    # 1.76 days and killed every in-flight stream. This raises the ceiling, it
+    # does NOT fix the leak: 65536 buys ~138 days at the measured request rate,
+    # which is headroom to observe the leak instead of being killed by it.
+    # Both soft and hard are set explicitly — soft > hard fails container start,
+    # and the long form is required when specifying both.
+    # Scoped to this service on purpose: a daemon-wide default-ulimits in
+    # /etc/docker/daemon.json would raise it for postgres/caddy/gluetun too and
+    # needs a dockerd restart (i.e. full stack downtime).
+    # NOTE: ulimits apply at container CREATION. `docker compose restart` will
+    # not pick this up — the container must be recreated with `up -d`.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     environment:
       - COMPANION_PORT=8282
       - COMPANION_HOST=0.0.0.0
