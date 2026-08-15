@@ -45,12 +45,29 @@ deployment or VPN IP.
 4. **YouTube player IDs** (useful to check if old players are retired):
    https://youtube-player-ids.nadeko.net/
 
-If a fix has been merged and a new official image published, just pull and restart:
+If a fix has been merged and a new official image published, bump the pinned tag.
+`docker-compose.yml` pins companion to an **immutable** tag, so `pull` alone will
+never upgrade it — that is deliberate (see the warning below):
+
 ```bash
-ssh azureuser@<VM_IP> 'cd /opt/yt-proxy && \
+# 1. Pick the newest tag from the registry (they sort chronologically):
+curl -s 'https://quay.io/api/v1/repository/invidious/invidious-companion/tag/?onlyActiveTags=true&limit=5' \
+  | grep -o '"name": "[^"]*"'
+
+# 2. Record the digest you are running now — this is the rollback anchor:
+ssh azureuser@<VM_IP> "docker inspect --format '{{.Image}}' yt-proxy-companion-1"
+
+# 3. Edit the `image:` line in docker-compose.yml, commit, then on the VM:
+ssh azureuser@<VM_IP> 'cd /opt/yt-proxy && git pull && \
   docker compose -f docker-compose.yml -f docker-compose.vpn.yml pull companion && \
   docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d companion'
+
+# 4. Verify what actually landed matches the registry:
+ssh azureuser@<VM_IP> "docker inspect --format '{{.Image}}' yt-proxy-companion-1"
 ```
+
+Rollback is the same procedure with the previously recorded tag/digest — no rebuild,
+under 5 minutes.
 
 ## Workaround: build Companion from a fix branch
 
@@ -84,14 +101,40 @@ Build takes ~30-60 seconds on the B2s VM.
 
 ### Step 3: Deploy
 
-```bash
-# Tag custom image to replace the official one
-docker tag invidious-companion:custom quay.io/invidious/invidious-companion:latest
+> ⚠️ **Never `docker tag` a local build over an official image tag.**
+> A previous version of this runbook said to run
+> `docker tag invidious-companion:custom quay.io/invidious/invidious-companion:latest`.
+> **Do not do that.** It leaves a locally built image squatting on the official tag, which:
+> * makes `docker compose pull` a **silent no-op** — you think you upgraded, you did not;
+> * makes it impossible to say what code is running, because the tag no longer
+>   corresponds to anything in the registry; and
+> * survives reboots and image prunes, so it misleads the *next* investigation too.
+>
+> This actually happened here: the March 2026 custom build shadowed `:latest` and the
+> deployment silently ran a ~5-month-old companion. `docker-compose.yml` now pins an
+> immutable tag for exactly this reason.
 
-# Recreate the Companion container
+Deploy the custom build through a **temporary overlay** instead, mirroring how
+[`docker-compose.patch.yml`](docker-compose.patch.yml) does it for Invidious. The custom
+image keeps its own name and never impersonates an official one:
+
+```bash
 cd /opt/yt-proxy
-docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d companion
+
+# Temporary, local-only overlay — do not commit it.
+cat > docker-compose.companion-custom.yml <<'YAML'
+services:
+  companion:
+    image: invidious-companion:custom
+YAML
+
+# The custom overlay must come LAST so its image: wins.
+docker compose -f docker-compose.yml -f docker-compose.vpn.yml \
+  -f docker-compose.companion-custom.yml up -d companion
 ```
+
+Remember that every later `docker compose` command for this stack must include the same
+`-f` list while the overlay is in use, or compose will revert companion to the pinned tag.
 
 ### Step 4: Verify
 
@@ -104,11 +147,19 @@ Look for: `[INFO] Successfully generated PO token`
 
 ### Step 5: Revert to official image later
 
-Once an official release includes the fix:
+Once an official release includes the fix, drop the overlay and bump the pinned tag in
+`docker-compose.yml` to the release that carries it:
+
 ```bash
 cd /opt/yt-proxy
+rm -f docker-compose.companion-custom.yml
+
+# git pull the commit that bumps the pinned tag, then recreate without the overlay:
 docker compose -f docker-compose.yml -f docker-compose.vpn.yml pull companion
 docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d companion
+
+# Clean up the local build so it cannot be confused with an official image later:
+docker image rm invidious-companion:custom
 ```
 
 ## Azure VM access
