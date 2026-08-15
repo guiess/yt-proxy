@@ -83,7 +83,21 @@ services:
       retries: 2
 
   companion:
-    image: quay.io/invidious/invidious-companion:latest
+    # Pinned to an immutable, date-prefixed upstream tag — never :latest.
+    # :latest on this host is not trustworthy: it can be (and has been) shadowed
+    # by a locally built image, which silently turns `docker compose pull` into a
+    # no-op and makes it impossible to say what code is running. Immutable tags
+    # also make rollback a one-line change instead of a rebuild.
+    #
+    # Registry digest for this tag (quay.io manifest list, verified 2026-08-15):
+    #   sha256:298cad3da121cc6ee290f00e6cc02a64feb36085097a3bba03d88eaa31d4dafd
+    # Verify after deploy:
+    #   docker image inspect --format '{{index .RepoDigests 0}}' \
+    #     quay.io/invidious/invidious-companion:2026.08.10-16cf10e
+    #
+    # Updating is a deliberate, manual tag bump: pick a newer tag from
+    # https://quay.io/repository/invidious/invidious-companion?tab=tags
+    image: quay.io/invidious/invidious-companion:2026.08.10-16cf10e
     restart: unless-stopped
     environment:
       - COMPANION_PORT=8282
