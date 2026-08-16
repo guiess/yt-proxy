@@ -2,6 +2,29 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
+    # Client TCP connections terminate HERE, inside Caddy's own network
+    # namespace — so host-level tuning in /etc/sysctl.d does NOT reach them.
+    # Both settings below are per-netns; setting them on the host leaves
+    # containers on the kernel defaults (cubic / slow-start-after-idle=1).
+    #
+    # Listeners are ~150-190ms away (Russia, Canada -> Azure UAE North). The
+    # DASH player fetches a segment every ~3.6s, leaving the connection idle
+    # in between, and with slow_start_after_idle=1 the kernel discards the
+    # congestion window each time. Measured on a live client stream: cwnd
+    # pinned at 10 (the initial window) with a 2MB receive window available,
+    # i.e. ~600kbit/s on a path that is otherwise clean (0% loss, 0.3ms
+    # jitter). That starves the player buffer and shows up as random
+    # rebuffering mid-playback.
+    #
+    # bbr additionally recovers far faster than cubic at these RTTs because it
+    # models bandwidth/RTT instead of treating any loss as congestion.
+    #
+    # Verify (NOT via `docker exec` — the image has no shell):
+    #   pid=$(docker inspect --format '{{.State.Pid}}' yt-proxy-caddy-1)
+    #   sudo nsenter -t $pid -n sysctl net.ipv4.tcp_congestion_control
+    sysctls:
+      - net.ipv4.tcp_congestion_control=bbr
+      - net.ipv4.tcp_slow_start_after_idle=0
     ports:
       - "80:80"
       - "443:443"
